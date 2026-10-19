@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventory Management System - 7-Eleven Branch</title>
+
+<!-- ================= STYLES (itsura ng system) ================= -->
+<style>
+  body { margin: 0; font-family: Arial, sans-serif; background: #f3f6f4; color: #17201c; }
+  button, input, select { font-size: 14px; padding: 7px 9px; }
+  button { cursor: pointer; }
+  .green  { background: #1f6f5c; color: white; border: none; border-radius: 6px; }
+  .red    { color: #b3261e; }
+  .hidden { display: none; }
+
+  /* Login page */
+  #loginPage { max-width: 320px; margin: 100px auto; background: white; padding: 24px; border-radius: 10px; }
+  #loginPage input { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+
+  /* Main layout: sidebar sa kaliwa, content sa kanan */
+  #app { display: flex; min-height: 100vh; }
+  #sidebar { width: 200px; background: #12352c; padding: 20px 12px; }
+  #sidebar h2 { color: white; margin: 0 0 20px 8px; font-size: 18px; }
+  #sidebar button { display: block; width: 100%; text-align: left; background: none; border: none; color: #b8d0c7; margin-bottom: 4px; border-radius: 6px; }
+  #sidebar button.active { background: #1f6f5c; color: white; }
+  #content { flex: 1; padding: 24px; overflow-x: auto; }
+
+  /* Cards at table */
+  .cards { display: flex; gap: 12px; margin: 16px 0; flex-wrap: wrap; }
+  .card { background: white; border: 1px solid #d8e0dc; border-radius: 8px; padding: 14px; min-width: 120px; }
+  .card b { display: block; font-size: 26px; }
+  table { width: 100%; background: white; border-collapse: collapse; border: 1px solid #d8e0dc; margin-bottom: 16px; }
+  th, td { text-align: left; padding: 9px; border-bottom: 1px solid #d8e0dc; }
+  .tag { padding: 2px 8px; border-radius: 10px; font-size: 12px; white-space: nowrap; }
+  .ok       { background: #dcf1e8; color: #1f6f5c; }
+  .low, .expiring { background: #fdebd7; color: #b4530a; }
+  .out, .expired  { background: #fbe0dd; color: #b3261e; }
+  .over     { background: #dce9f9; color: #1e5aa8; }
+  .message  { background: #dcf1e8; color: #1f6f5c; padding: 10px; border-radius: 6px; margin-bottom: 12px; }
+
+  /* Popup form */
+  dialog { border: 1px solid #ccc; border-radius: 10px; width: 340px; }
+  dialog input, dialog select { width: 100%; box-sizing: border-box; margin: 4px 0 10px; }
+</style>
+</head>
+
+<body>
+
+<!-- ================= LOGIN PAGE ================= -->
+<div id="loginPage">
+  <h2>Inventory Management System</h2>
+  <p>7-Eleven branch. Sign in to continue.</p>
+  <input id="username" placeholder="Username">
+  <input id="password" type="password" placeholder="Password">
+  <p id="loginError" class="red"></p>
+  <button class="green" onclick="login()">Sign in</button>
+  <p style="font-size:12px;color:#666">Demo account: admin / admin123</p>
+</div>
+
+<!-- ================= MAIN APP ================= -->
+<div id="app" class="hidden">
+  <div id="sidebar">
+    <h2>Inventory</h2>
+    <button id="btnDashboard"     onclick="showPage('dashboard')">Dashboard</button>
+    <button id="btnInventory"     onclick="showPage('inventory')">Inventory</button>
+    <button id="btnMovements"     onclick="showPage('movements')">Stock movements</button>
+    <button id="btnReplenishment" onclick="showPage('replenishment')">Replenishment</button>
+    <button id="btnCount"         onclick="showPage('count')">Stock count</button>
+    <button id="btnReports"       onclick="showPage('reports')">Reports</button>
+    <button onclick="logout()">Log out</button>
+  </div>
+
+  <div id="content">
+
+    <!-- Dashboard -->
+    <div id="dashboard">
+      <h1>Dashboard</h1>
+      <div class="cards">
+        <div class="card"><b id="dItems">0</b>Item types</div>
+        <div class="card"><b id="dLow">0</b>Low / out of stock</div>
+        <div class="card"><b id="dExpiry">0</b>Expiring / expired</div>
+        <div class="card"><b id="dOver">0</b>Overstock</div>
+      </div>
+      <h3>Needs attention</h3>
+      <table id="attentionTable"></table>
+    </div>
+
+    <!-- Inventory -->
+    <div id="inventory" class="hidden">
+      <h1>Inventory</h1>
+      <input id="search" placeholder="Scan barcode or search" style="width:260px"
+             oninput="showInventory()" onkeydown="scanEnter(event)">
+      <button class="green" onclick="openItemForm(null)">Add item</button>
+      <p style="font-size:12px;color:#666">Tip: type or scan a full barcode and press Enter to update that item's stock.</p>
+      <table id="itemTable"></table>
+    </div>
+
+    <!-- Stock movements -->
+    <div id="movements" class="hidden">
+      <h1>Stock movements</h1>
+      <table id="moveTable"></table>
+    </div>
+
+    <!-- Replenishment (reorder sa warehouse) -->
+    <div id="replenishment" class="hidden">
+      <h1>Replenishment</h1>
+      <p>Items at or below the reorder point. Suggested order = max stock minus current quantity.</p>
+      <div id="orderMessage"></div>
+      <table id="replTable"></table>
+      <button class="green" onclick="sendOrder()">Send order to warehouse</button>
+      <h3>Order history</h3>
+      <table id="orderTable"></table>
+    </div>
+
+    <!-- Stock count (audit) -->
+    <div id="count" class="hidden">
+      <h1>Stock count</h1>
+      <p>Count the shelf, enter the actual number, and the system records the difference. High-value items (cigarettes, load) should be counted daily.</p>
+      <div id="countMessage"></div>
+      <table id="countTable"></table>
+    </div>
+
+    <!-- Reports -->
+    <div id="reports" class="hidden">
+      <h1>Reports</h1>
+      <div class="cards">
+        <div class="card"><b id="rReorder">0</b>Items to reorder</div>
+        <div class="card"><b id="rExpiry">0</b>Expiring / expired</div>
+        <div class="card"><b id="rOver">0</b>Overstock</div>
+        <div class="card"><b id="rLost">0</b>Units lost (shrinkage)</div>
+      </div>
+      <h3>Shrinkage by reason</h3>
+      <table id="shrinkTable"></table>
+    </div>
+
+  </div>
+</div>
+
+<!-- ================= POPUP: CONFIRM DELETE ================= -->
+<dialog id="deleteDialog">
+  <h3 id="deleteTitle">Delete item?</h3>
+  <p>This removes the item and its stock count. This cannot be undone.</p>
+  <button onclick="closeDialog('deleteDialog')">Cancel</button>
+  <button class="green" style="background:#b3261e" onclick="confirmDelete()">Delete</button>
+</dialog>
+
+<!-- ================= POPUP: ADD / EDIT ITEM ================= -->
+<dialog id="itemDialog">
+  <h3 id="itemTitle">Add item</h3>
+  Item name <input id="itemName">
+  Barcode <input id="itemBarcode">
+  Category <input id="itemCategory" placeholder="e.g. Beverages, Fresh food, High-value">
+  Quantity <input id="itemQty" type="number" min="0">
+  Reorder at <input id="itemMin" type="number" min="0">
+  Max stock <input id="itemMax" type="number" min="1">
+  Expiry date (optional) <input id="itemExpiry" type="date">
+  <p id="itemError" class="red"></p>
+  <button onclick="closeDialog('itemDialog')">Cancel</button>
+  <button class="green" onclick="saveItem()">Save item</button>
+</dialog>
+
+<!-- ================= POPUP: UPDATE STOCK ================= -->
+<dialog id="moveDialog">
+  <h3 id="moveTitle"></h3>
+  Type
+  <select id="moveType">
+    <option value="delivery">Delivery from warehouse (adds stock)</option>
+    <option value="sale">Sale (removes stock)</option>
+    <option value="damaged">Damaged / expired (removes stock)</option>
+  </select>
+  Quantity <input id="moveQty" type="number" min="1" value="1">
+  Note (optional) <input id="moveNote">
+  <p id="moveError" class="red"></p>
+  <button onclick="closeDialog('moveDialog')">Cancel</button>
+  <button class="green" onclick="saveMove()">Save</button>
+</dialog>
+
+<!-- ================= JAVASCRIPT (ang logic ng system) =================
+
+  PAANO MAG-DEBUG SA DEFENSE:
+  1. Pindutin ang F12 sa browser, tapos pumunta sa tab na "Console".
+  2. I-type ang   items       para makita ang listahan ng items.
+     I-type ang   movements   para makita ang history ng stock.
+     I-type ang   orders      para makita ang mga order sa warehouse.
+  3. Para ibalik sa sample data:  localStorage.clear()  tapos i-refresh ang page (F5).
+  4. Kung may red na error sa Console, nakasulat doon kung anong line at anong function.
+  5. Para makita kung tumatakbo ang isang function, maglagay ng   console.log("dito")   sa loob nito.
+
+  SAAN HANAPIN ANG BAWAT FEATURE:
+  - Login               -> login()
+  - Status ng item      -> getStatus()   (out, low, expired, expiring, overstock, ok)
+  - Add / Edit          -> openItemForm() at saveItem()
+  - Delete              -> deleteItem() at confirmDelete()
+  - Barcode scan        -> scanEnter()
+  - Update stock        -> openMove() at saveMove()
+  - Replenishment       -> showReplenishment() at sendOrder()
+  - Stock count         -> showCount() at saveCount()
+  - Reports (shrinkage) -> showReports()
+-->
+<script>
+// Maikling pangalan para sa document.getElementById
+function el(id) {
+  return document.getElementById(id);
+}
+function closeDialog(id) {
+  el(id).close();
+}
+
+// ---------- 1. DATA ----------
+// Petsa ngayon + ilang araw (para sa expiry ng sample data). Format: YYYY-MM-DD
+function dateFromToday(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString("en-CA");
+}
+
+// Listahan ng items. qty = quantity, min = reorder point, max = max stock.
+// Naka-save sa localStorage para hindi mawala pag nag-refresh.
+let items = JSON.parse(localStorage.getItem("ims7_items")) || [
+  { id: 1, name: "Bottled water 500ml",   barcode: "100001", category: "Beverages",  qty: 48,  min: 30, max: 120, expiry: "" },
+  { id: 2, name: "Ice (bag)",             barcode: "100002", category: "Beverages",  qty: 6,   min: 10, max: 40,  expiry: "" },
+  { id: 3, name: "Instant noodles (cup)", barcode: "100003", category: "Dry goods",  qty: 60,  min: 24, max: 150, expiry: "" },
+  { id: 4, name: "Chips (assorted)",      barcode: "100004", category: "Snacks",     qty: 35,  min: 20, max: 100, expiry: "" },
+  { id: 5, name: "Ready-to-eat meal",     barcode: "100005", category: "Fresh food", qty: 18,  min: 10, max: 30,  expiry: dateFromToday(1) },
+  { id: 6, name: "Fresh milk",            barcode: "100006", category: "Dairy",      qty: 10,  min: 6,  max: 24,  expiry: dateFromToday(2) },
+  { id: 7, name: "Umbrella",              barcode: "100007", category: "Seasonal",   qty: 40,  min: 5,  max: 20,  expiry: "" },
+  { id: 8, name: "Cigarettes (pack)",     barcode: "100008", category: "High-value", qty: 120, min: 50, max: 300, expiry: "" },
+  { id: 9, name: "Prepaid load card",     barcode: "100009", category: "High-value", qty: 0,   min: 20, max: 100, expiry: "" }
+];
+let movements = JSON.parse(localStorage.getItem("ims7_movements")) || [];  // history ng stock
+let orders = JSON.parse(localStorage.getItem("ims7_orders")) || [];        // orders sa warehouse
+
+let editingId = null;   // aling item ang ine-edit (null = bagong item)
+let movingId = null;    // aling item ang may update stock
+let deletingId = null;  // aling item ang buburahin
+
+function saveData() {
+  localStorage.setItem("ims7_items", JSON.stringify(items));
+  localStorage.setItem("ims7_movements", JSON.stringify(movements));
+  localStorage.setItem("ims7_orders", JSON.stringify(orders));
+}
+
+function findItem(id) {
+  return items.find(item => item.id === id);
+}
+
+// Ilang araw bago ma-expire (negative = expired na)
+function daysLeft(expiry) {
+  return Math.round((new Date(expiry) - new Date(dateFromToday(0))) / 86400000);
+}
+
+// Status ng item. Ang pinakamahalagang problema ang inuuna.
+function getStatus(item) {
+  if (item.expiry !== "" && daysLeft(item.expiry) < 0) return "expired";
+  if (item.qty === 0) return "out";
+  if (item.qty <= item.min) return "low";
+  if (item.expiry !== "" && daysLeft(item.expiry) <= 2) return "expiring";
+  if (item.qty > item.max) return "over";
+  return "ok";
+}
+
+function statusText(status) {
+  if (status === "expired") return "Expired";
+  if (status === "out") return "Out of stock";
+  if (status === "low") return "Low stock";
+  if (status === "expiring") return "Expiring soon";
+  if (status === "over") return "Overstock";
+  return "OK";
+}
+
+// Kulay-label ng status (HTML)
+function tag(status) {
+  return `<span class="tag ${status}">${statusText(status)}</span>`;
+}
+
+// Ilang item ang may isa sa mga status na ito
+function countStatus(statusList) {
+  let total = 0;
+  for (const item of items) {
+    if (statusList.includes(getStatus(item))) total++;
+  }
+  return total;
+}
+
+// Mga item na umabot na sa reorder point
+function itemsToReorder() {
+  return items.filter(item => item.qty <= item.min);
+}
+
+// ---------- 2. LOGIN / LOGOUT ----------
+function login() {
+  const user = el("username").value;
+  const pass = el("password").value;
+
+  if (user === "admin" && pass === "admin123") {
+    el("loginPage").classList.add("hidden");
+    el("app").classList.remove("hidden");
+    showPage("dashboard");
+  } else {
+    el("loginError").textContent = "Wrong username or password.";
+  }
+}
+
+function logout() {
+  el("app").classList.add("hidden");
+  el("loginPage").classList.remove("hidden");
+  el("password").value = "";
+  el("loginError").textContent = "";
+}
+
+// ---------- 3. PAGES ----------
+// Ipakita ang isang page lang, itago ang iba
+function showPage(name) {
+  const pages = ["dashboard", "inventory", "movements", "replenishment", "count", "reports"];
+  for (const p of pages) {
+    el(p).classList.add("hidden");
+    el("btn" + p[0].toUpperCase() + p.slice(1)).classList.remove("active");
+  }
+  el(name).classList.remove("hidden");
+  el("btn" + name[0].toUpperCase() + name.slice(1)).classList.add("active");
+  el("orderMessage").innerHTML = "";
+  el("countMessage").innerHTML = "";
+
+  if (name === "dashboard") showDashboard();
+  if (name === "inventory") showInventory();
+  if (name === "movements") showMovements();
+  if (name === "replenishment") showReplenishment();
+  if (name === "count") showCount();
+  if (name === "reports") showReports();
+}
+
+// Dashboard: bilang at listahan ng items na may problema
+function showDashboard() {
+  el("dItems").textContent = items.length;
+  el("dLow").textContent = countStatus(["low", "out"]);
+  el("dExpiry").textContent = countStatus(["expiring", "expired"]);
+  el("dOver").textContent = countStatus(["over"]);
+
+  let rows = "<tr><th>Item</th><th>Issue</th><th>Details</th></tr>";
+  for (const item of items) {
+    const status = getStatus(item);
+    if (status === "ok") continue;   // skip ang walang problema
+
+    let details = item.qty + " on hand, reorder at " + item.min;
+    if (status === "expiring" || status === "expired") {
+      details = "Expires " + item.expiry + ", " + item.qty + " on hand";
+    }
+    if (status === "over") {
+      details = item.qty + " on hand, max stock " + item.max;
+    }
+    rows += `<tr><td>${item.name}</td><td>${tag(status)}</td><td>${details}</td></tr>`;
+  }
+  el("attentionTable").innerHTML = rows;
+}
+
+// Inventory: table ng items. Ang search ay tumatanggap ng name, category, o barcode.
+function showInventory() {
+  const text = el("search").value.toLowerCase();
+  let rows = "<tr><th>Item</th><th>Barcode</th><th>Category</th><th>Qty</th><th>Reorder at</th><th>Expiry</th><th>Status</th><th>Actions</th></tr>";
+
+  for (const item of items) {
+    if (!(item.name + " " + item.category + " " + item.barcode).toLowerCase().includes(text)) continue;
+
+    rows += `<tr>
+      <td>${item.name}</td><td>${item.barcode}</td><td>${item.category}</td><td>${item.qty}</td>
+      <td>${item.min}</td><td>${item.expiry || "-"}</td><td>${tag(getStatus(item))}</td>
+      <td>
+        <button onclick="openMove(${item.id})">Update stock</button>
+        <button onclick="openItemForm(${item.id})">Edit</button>
+        <button class="red" onclick="deleteItem(${item.id})">Delete</button>
+      </td></tr>`;
+  }
+  el("itemTable").innerHTML = rows;
+}
+
+// Barcode scan: kapag pinindot ang Enter at eksaktong barcode ang nakalagay, buksan ang Update stock
+function scanEnter(event) {
+  if (event.key !== "Enter") return;
+  const barcode = el("search").value.trim();
+  const item = items.find(i => i.barcode === barcode);
+  if (item) {
+    el("search").value = "";
+    showInventory();
+    openMove(item.id);
+  }
+}
+
+// Movements: history ng lahat ng pagbabago sa stock
+function showMovements() {
+  let rows = "<tr><th>Date</th><th>Item</th><th>Type</th><th>Qty</th><th>Note</th></tr>";
+  if (movements.length === 0) {
+    rows += "<tr><td colspan='5'>No movements yet.</td></tr>";
+  }
+  for (const m of movements) {
+    rows += `<tr><td>${m.date}</td><td>${m.name}</td><td>${m.type}</td><td>${m.qty}</td><td>${m.note}</td></tr>`;
+  }
+  el("moveTable").innerHTML = rows;
+}
+
+// ---------- 4. REPLENISHMENT (reorder sa warehouse) ----------
+// Suggested order = max stock - qty
+function showReplenishment() {
+  let rows = "<tr><th>Item</th><th>Qty</th><th>Reorder at</th><th>Max stock</th><th>Suggested order</th><th>Status</th></tr>";
+  const list = itemsToReorder();
+  if (list.length === 0) {
+    rows += "<tr><td colspan='6'>Nothing to reorder right now.</td></tr>";
+  }
+  for (const item of list) {
+    rows += `<tr><td>${item.name}</td><td>${item.qty}</td><td>${item.min}</td><td>${item.max}</td>
+             <td>${item.max - item.qty}</td><td>${tag(getStatus(item))}</td></tr>`;
+  }
+  el("replTable").innerHTML = rows;
+
+  let history = "<tr><th>Date</th><th>Items ordered</th><th>Status</th></tr>";
+  if (orders.length === 0) {
+    history += "<tr><td colspan='3'>No orders sent yet.</td></tr>";
+  }
+  for (const o of orders) {
+    history += `<tr><td>${o.date}</td><td>${o.lines}</td><td>Sent to warehouse</td></tr>`;
+  }
+  el("orderTable").innerHTML = history;
+}
+
+function sendOrder() {
+  const list = itemsToReorder();
+  if (list.length === 0) {
+    el("orderMessage").innerHTML = "<div class='message'>Nothing to order.</div>";
+    return;
+  }
+  // Gumawa ng text na tulad ng "Ice (bag) x34, Prepaid load card x100"
+  let lines = "";
+  for (const item of list) {
+    if (lines !== "") lines += ", ";
+    lines += item.name + " x" + (item.max - item.qty);
+  }
+  orders.unshift({ date: new Date().toLocaleString(), lines: lines });
+  saveData();
+  showReplenishment();
+  el("orderMessage").innerHTML = "<div class='message'>Order sent to warehouse: " + lines + "</div>";
+}
+
+// ---------- 5. STOCK COUNT (audit) ----------
+function showCount() {
+  let rows = "<tr><th>Item</th><th>Type</th><th>System qty</th><th>Counted</th><th>Reason if different</th><th>Action</th></tr>";
+
+  // Unahin ang high-value items, tapos ang regular
+  const highValue = items.filter(item => item.category === "High-value");
+  const regular = items.filter(item => item.category !== "High-value");
+  const sorted = highValue.concat(regular);
+
+  for (const item of sorted) {
+    const type = item.category === "High-value" ? "High-value (count daily)" : "Regular";
+    rows += `<tr><td>${item.name}</td><td>${type}</td><td>${item.qty}</td>
+      <td><input type="number" min="0" id="counted${item.id}" value="${item.qty}" style="width:70px"></td>
+      <td><select id="reason${item.id}">
+        <option>Pilferage</option><option>Damaged goods</option><option>Wrong scan / human error</option>
+      </select></td>
+      <td><button onclick="saveCount(${item.id})">Save count</button></td></tr>`;
+  }
+  el("countTable").innerHTML = rows;
+}
+
+function saveCount(id) {
+  const item = findItem(id);
+  const counted = Number(el("counted" + id).value);
+  const reason = el("reason" + id).value;
+  const difference = counted - item.qty;   // negative = kulang
+
+  if (difference === 0) {
+    el("countMessage").innerHTML = "<div class='message'>" + item.name + ": count matches the system.</div>";
+    return;
+  }
+  item.qty = counted;   // i-correct ang bilang sa system
+  movements.unshift({ date: new Date().toLocaleString(), name: item.name,
+                      type: "Count adjustment", qty: difference, note: reason });
+  saveData();
+  showCount();
+  el("countMessage").innerHTML = "<div class='message'>" + item.name + ": adjusted by " + difference + " (" + reason + ").</div>";
+}
+
+// ---------- 6. REPORTS ----------
+// Shrinkage = nawalang units: negative count adjustments + damaged / expired
+function showReports() {
+  el("rReorder").textContent = itemsToReorder().length;
+  el("rExpiry").textContent = countStatus(["expiring", "expired"]);
+  el("rOver").textContent = countStatus(["over"]);
+
+  const lost = { "Pilferage": 0, "Damaged goods": 0, "Wrong scan / human error": 0, "Damaged / expired": 0 };
+  for (const m of movements) {
+    if (m.type === "Count adjustment" && m.qty < 0) lost[m.note] += -m.qty;
+    if (m.type === "Damaged / expired") lost["Damaged / expired"] += -m.qty;
+  }
+
+  let total = 0;
+  for (const reason in lost) total += lost[reason];
+  el("rLost").textContent = total;
+
+  let rows = "<tr><th>Reason</th><th>Units lost</th><th>Share</th></tr>";
+  for (const reason in lost) {
+    const share = total === 0 ? 0 : Math.round(lost[reason] / total * 100);
+    rows += `<tr><td>${reason}</td><td>${lost[reason]}</td><td>${share}%</td></tr>`;
+  }
+  el("shrinkTable").innerHTML = rows;
+}
+
+// ---------- 7. ADD / EDIT / DELETE ITEM ----------
+// Buksan ang form. Kung may id = edit, kung null = add.
+function openItemForm(id) {
+  editingId = id;
+  el("itemError").textContent = "";
+
+  if (id === null) {
+    el("itemTitle").textContent = "Add item";
+    el("itemName").value = "";
+    el("itemBarcode").value = "";
+    el("itemCategory").value = "";
+    el("itemQty").value = 0;
+    el("itemMin").value = 10;
+    el("itemMax").value = 50;
+    el("itemExpiry").value = "";
+  } else {
+    const item = findItem(id);
+    el("itemTitle").textContent = "Edit item";
+    el("itemName").value = item.name;
+    el("itemBarcode").value = item.barcode;
+    el("itemCategory").value = item.category;
+    el("itemQty").value = item.qty;
+    el("itemMin").value = item.min;
+    el("itemMax").value = item.max;
+    el("itemExpiry").value = item.expiry;
+  }
+  el("itemDialog").showModal();
+}
+
+function saveItem() {
+  const name = el("itemName").value.trim();
+  const barcode = el("itemBarcode").value.trim();
+  const category = el("itemCategory").value.trim();
+  const qty = Number(el("itemQty").value);
+  const min = Number(el("itemMin").value);
+  const max = Number(el("itemMax").value);
+  const expiry = el("itemExpiry").value;
+
+  // Validation 1: kailangan may name, barcode, at category
+  if (name === "" || barcode === "" || category === "") {
+    el("itemError").textContent = "Please enter the item name, barcode, and category.";
+    return;
+  }
+  // Validation 2: bawal ang parehong barcode
+  const duplicate = items.find(i => i.barcode === barcode && i.id !== editingId);
+  if (duplicate) {
+    el("itemError").textContent = "This barcode is already used by " + duplicate.name + ".";
+    return;
+  }
+  // Validation 3: dapat mas mataas ang max stock kaysa reorder point
+  if (max < min) {
+    el("itemError").textContent = "Max stock must be higher than the reorder point.";
+    return;
+  }
+
+  if (editingId === null) {
+    // Bagong item
+    items.push({ id: Date.now(), name: name, barcode: barcode, category: category,
+                 qty: qty, min: min, max: max, expiry: expiry });
+  } else {
+    // I-update ang existing item
+    const item = findItem(editingId);
+    item.name = name;
+    item.barcode = barcode;
+    item.category = category;
+    item.qty = qty;
+    item.min = min;
+    item.max = max;
+    item.expiry = expiry;
+  }
+  saveData();
+  el("itemDialog").close();
+  showInventory();
+}
+
+// Delete: magtanong muna gamit ang dialog, tapos tanggalin pag pinindot ang Delete
+function deleteItem(id) {
+  deletingId = id;
+  el("deleteTitle").textContent = "Delete " + findItem(id).name + "?";
+  el("deleteDialog").showModal();
+}
+
+function confirmDelete() {
+  items = items.filter(item => item.id !== deletingId);
+  saveData();
+  el("deleteDialog").close();
+  showInventory();
+}
+
+// ---------- 8. UPDATE STOCK (delivery / sale / damaged) ----------
+function openMove(id) {
+  movingId = id;
+  el("moveTitle").textContent = "Update stock: " + findItem(id).name;
+  el("moveType").value = "delivery";
+  el("moveQty").value = 1;
+  el("moveNote").value = "";
+  el("moveError").textContent = "";
+  el("moveDialog").showModal();
+}
+
+function saveMove() {
+  const item = findItem(movingId);
+  const type = el("moveType").value;   // "delivery", "sale", o "damaged"
+  const qty = Number(el("moveQty").value);
+
+  if (qty < 1) {
+    el("moveError").textContent = "Quantity must be at least 1.";
+    return;
+  }
+  // Hindi pwedeng mag-alis ng higit sa available
+  if (type !== "delivery" && qty > item.qty) {
+    el("moveError").textContent = "Only " + item.qty + " in stock. Enter " + item.qty + " or less.";
+    return;
+  }
+
+  // Delivery = dagdag, ang iba = bawas
+  let change = -qty;
+  if (type === "delivery") change = qty;
+  item.qty += change;
+
+  let typeName = "Sale";
+  if (type === "delivery") typeName = "Delivery";
+  if (type === "damaged") typeName = "Damaged / expired";
+
+  // I-record sa history (pinakabago ang nasa taas)
+  movements.unshift({ date: new Date().toLocaleString(), name: item.name, type: typeName,
+                      qty: change, note: el("moveNote").value || "-" });
+  saveData();
+  el("moveDialog").close();
+  showInventory();
+}
+</script>
+</body>
+</html>
